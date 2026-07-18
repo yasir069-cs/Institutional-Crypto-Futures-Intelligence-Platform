@@ -25,7 +25,6 @@ from typing import Any, Awaitable, Callable
 import aiohttp
 
 from app.config import settings
-from app.core.errors import WebSocketDisconnectedError
 from app.core.logging import get_logger
 from app.exchange.binance_rest import BinanceRestClient
 

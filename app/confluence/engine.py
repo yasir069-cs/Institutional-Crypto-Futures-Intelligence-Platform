@@ -332,7 +332,6 @@ class ConfluenceEngine:
         rsi_score = 0.0
         rsi_info = indicators.get("rsi") or {}
         if isinstance(rsi_info, dict):
-            rsi_val = rsi_info.get("value", 50)
             slope = rsi_info.get("slope", 0)
             # RSI is supporting only — use slope, not absolute level
             rsi_score = _clamp(slope / 30.0)

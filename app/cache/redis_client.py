@@ -23,7 +23,6 @@ log = get_logger(__name__)
 
 try:
     from redis.asyncio import Redis, from_url
-    from redis.asyncio.sentinel import Sentinel  # noqa: F401
     from redis.exceptions import RedisError
 except ImportError:  # pragma: no cover
     Redis = None  # type: ignore

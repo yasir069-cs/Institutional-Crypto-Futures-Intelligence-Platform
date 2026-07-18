@@ -26,13 +26,7 @@ from fastapi.responses import HTMLResponse
 from app.core.container import ServiceContainer
 from app.core.logging import get_logger
 from app.db.session import get_session
-from app.db.repositories import (
-    AIDecisionRepository,
-    ErrorLogRepository,
-    MetricRepository,
-    SignalRepository,
-    SymbolRepository,
-)
+from app.db.repositories import MetricRepository, SignalRepository
 
 log = get_logger(__name__)
 

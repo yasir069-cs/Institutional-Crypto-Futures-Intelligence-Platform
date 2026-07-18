@@ -33,13 +33,13 @@ import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
 
 from app.config import settings
-from app.core.errors import ExchangeError, RateLimitedError
+from app.core.errors import ExchangeError
 from app.core.logging import get_logger
 from app.exchange.rate_limiter import BinanceRateLimiter
 

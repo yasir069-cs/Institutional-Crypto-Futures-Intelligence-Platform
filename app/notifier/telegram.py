@@ -15,12 +15,10 @@ import asyncio
 import hashlib
 import time
 from datetime import datetime, timezone
-from typing import Sequence
 
 import aiohttp
 
 from app.config import settings
-from app.core.errors import NotificationError
 from app.core.logging import get_logger
 from app.db.models import TelegramAlert
 from app.db.repositories import TelegramAlertRepository

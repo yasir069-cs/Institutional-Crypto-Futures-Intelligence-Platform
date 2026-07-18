@@ -19,7 +19,7 @@ Design rules
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable, Generic, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
 from app.core.errors import PlatformError
 from app.core.logging import get_logger

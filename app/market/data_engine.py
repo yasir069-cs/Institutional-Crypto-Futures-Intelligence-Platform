@@ -26,7 +26,7 @@ import asyncio
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Deque
+from typing import Any, Deque
 
 from app.core.logging import get_logger
 from app.exchange.binance_rest import (
@@ -91,7 +91,10 @@ class SymbolState:
 class MarketDataEngine:
     """In-memory cache of live market state for all tracked symbols."""
 
-    def __init__(self, rest: "BinanceRestClient | None" = None) -> None:  # type: ignore[name-defined]
+    def __init__(self, rest: "Any | None" = None) -> None:
+        # ``rest`` is an optional BinanceRestClient. Accept Any to avoid a
+        # circular import (BinanceRestClient imports dataclasses from this
+        # module's package).
         self._rest = rest
         self._states: dict[str, SymbolState] = {}
         self._lock_per_symbol: dict[str, asyncio.Lock] = {}

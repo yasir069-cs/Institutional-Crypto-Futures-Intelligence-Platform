@@ -69,7 +69,6 @@ async def _register_exchange(container: ServiceContainer) -> None:
 
 async def _register_market_layer(container: ServiceContainer) -> None:
     """Construct market data + candle + indicator engines."""
-    from app.exchange.binance_rest import BinanceRestClient
     from app.market.data_engine import MarketDataEngine
     from app.market.candle_engine import CandleEngine
     from app.market.indicator_engine import IndicatorEngine
@@ -247,7 +246,6 @@ def run_sync() -> None:
         async with lifespan():
             log.info("platform_running")
             # Start the main scan loop in the background.
-            from app.engine.pipeline import AnalysisPipeline
 
             pipeline = await container.get("AnalysisPipeline") if container.has("AnalysisPipeline") else None
             if pipeline is not None:

@@ -26,12 +26,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from app.config import settings
 from app.core.logging import get_logger
-from app.exchange.binance_rest import Candle
 from app.market.candle_engine import CandleEngine
 from app.market.data_engine import MarketDataEngine
 from app.market.indicator_engine import IndicatorEngine

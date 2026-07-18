@@ -9,13 +9,12 @@ Provides time-windowed aggregates used by the dashboard and ops team:
 
 from __future__ import annotations
 
-import json
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.core.logging import get_logger
 from app.db.models import AIDecision, Metric, Signal

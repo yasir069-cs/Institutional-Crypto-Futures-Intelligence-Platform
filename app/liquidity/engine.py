@@ -266,7 +266,7 @@ class LiquidityEngine:
     def _find_order_blocks(self, candles: Sequence[Candle]) -> list[OrderBlock]:
         obs: list[OrderBlock] = []
         for i in range(1, len(candles) - 1):
-            prev, curr, nxt = candles[i - 1], candles[i], candles[i + 1]
+            curr, nxt = candles[i], candles[i + 1]
             displacement = (nxt.close - curr.close) / curr.close if curr.close > 0 else 0
             if abs(displacement) < self._min_displacement:
                 continue

@@ -23,8 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from app.config import settings
 from app.confluence.engine import ConfluenceEngine, ConfluenceResult
@@ -42,6 +41,7 @@ from app.smart_money.engine import SmartMoneyEngine, SmartMoneyResult
 from app.structure.market_structure import (
     MarketStructureEngine,
     MarketStructureResult,
+    StructureEvent,
     TrendBias,
 )
 from app.structure.trend import MultiTimeframeTrend, TrendEngine
@@ -209,7 +209,7 @@ class Stage2RuleEngine:
         state = self._md.get(symbol)
         smart_money = self._sm.analyze(htf_candles, state, liquidity)
         pressure = self._press.analyze(
-            trades=None, candles=lTF_safe(ltf_candles), state=state
+            trades=None, candles=ltf_candles, state=state
         )
 
         # Volume
@@ -358,12 +358,23 @@ class Stage2RuleEngine:
     def _reject(
         self, c: Stage1Candidate, reason: str, htf: str, mtf: str, ltf: str
     ) -> Stage2Setup:
+        # Build a minimal but valid MultiTimeframeTrend for the rejected setup.
+        from app.structure.trend import TimeframeTrend
+        placeholder_tf = TimeframeTrend(
+            timeframe="1h", bias=TrendBias.NEUTRAL, strength=0.0,
+            ema_score=0.0, adx=0.0, adx_label="none",
+        )
         return Stage2Setup(
             symbol=c.symbol,
             direction="NONE",
             price=c.price,
-            trend=MultiTimeframeTrend.__new__(MultiTimeframeTrend),  # placeholder
-            market_structure=MarketStructureResult(bias=TrendBias.NEUTRAL, event=__import__("app.structure.market_structure", fromlist=["StructureEvent"]).StructureEvent.NONE),
+            trend=MultiTimeframeTrend(
+                htf=placeholder_tf, mtf=placeholder_tf, ltf=placeholder_tf,
+                overall_bias=TrendBias.NEUTRAL, aligned=False, score=50,
+            ),
+            market_structure=MarketStructureResult(
+                bias=TrendBias.NEUTRAL, event=StructureEvent.NONE,
+            ),
             liquidity=LiquidityResult(),
             smart_money=SmartMoneyResult(),
             pressure=PressureResult(),
@@ -429,11 +440,6 @@ class Stage2RuleEngine:
             ltf_label=ltf,
             rejected_reason=reason,
         )
-
-
-def lTF_safe(candles):
-    """Trivial helper to keep type checker calm — returns the list."""
-    return candles
 
 
 __all__ = ["Stage2RuleEngine", "Stage2Result", "Stage2Setup"]

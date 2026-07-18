@@ -29,7 +29,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Sequence
+from typing import Any, Sequence
 
 from app.core.logging import get_logger
 from app.exchange.binance_rest import Candle
@@ -441,8 +441,10 @@ class CachedIndicator:
 class IndicatorEngine:
     """Caching wrapper that recomputes only when the latest candle changes."""
 
-    def __init__(self, candles: "CandleEngine | None" = None) -> None:  # type: ignore[name-defined]
-        # Lazy import to avoid cycle
+    def __init__(self, candles: "Any | None" = None) -> None:
+        # ``candles`` is an optional CandleEngine instance; we accept Any to
+        # avoid a circular import (CandleEngine imports from this module's
+        # public functions, not the class itself).
         self._candles = candles
         self._cache: dict[tuple[str, str], CachedIndicator] = {}
 

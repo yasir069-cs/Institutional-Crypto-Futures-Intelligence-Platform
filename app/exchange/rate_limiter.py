@@ -37,7 +37,8 @@ class SlidingWindowLimiter:
     def __init__(self, max_events: int, window_sec: float) -> None:
         self._max = max_events
         self._window = window_sec
-        self._events: Deque[float] = deque()
+        # Stores (timestamp, weight) tuples for sliding-window weight accounting.
+        self._events: Deque[tuple[float, int]] = deque()
         self._lock = asyncio.Lock()
 
     async def acquire(self, weight: int = 1) -> None:
@@ -47,9 +48,9 @@ class SlidingWindowLimiter:
         while True:
             async with self._lock:
                 self._purge()
-                current = sum(self._events) if False else self._count_weight()
-                # _events stores (timestamp, weight) — but deque can't easily store tuples
-                # here we re-design: store weights per second slot
+                # ``_events`` stores tuples of (timestamp, weight). Sum the
+                # weights of entries still within the sliding window.
+                current = self._count_weight()
                 if current + weight <= self._max:
                     self._events.append((time.monotonic(), weight))  # type: ignore[assignment]
                     return

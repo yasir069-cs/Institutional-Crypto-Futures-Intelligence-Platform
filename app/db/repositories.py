@@ -2,6 +2,11 @@
 
 These thin wrappers expose intent-revealing methods to the rest of the
 application. Domain code never imports SQLAlchemy directly.
+
+Note on upserts: We use ``sqlalchemy.dialects.postgresql.insert`` for
+PostgreSQL-native upserts (ON CONFLICT DO UPDATE). When running on SQLite
+(tests / local dev), we fall back to a manual SELECT-then-INSERT/UPDATE
+pattern. This is detected at runtime by checking the engine dialect.
 """
 
 from __future__ import annotations
@@ -11,7 +16,6 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
     AIDecision,
@@ -31,7 +35,19 @@ class SymbolRepository(BaseRepository[Symbol]):
     model = Symbol
 
     async def upsert(self, symbol: Symbol) -> Symbol:
-        """Insert or update a symbol row by ``symbol`` name."""
+        """Insert or update a symbol row by ``symbol`` name.
+
+        Uses PostgreSQL native ON CONFLICT when available; falls back to a
+        manual SELECT-then-UPDATE/INSERT on SQLite (for tests).
+        """
+        if self._is_sqlite():
+            return await self._upsert_sqlite(symbol)
+        return await self._upsert_postgres(symbol)
+
+    def _is_sqlite(self) -> bool:
+        return self.session.bind.dialect.name == "sqlite" if self.session.bind else False
+
+    async def _upsert_postgres(self, symbol: Symbol) -> Symbol:
         stmt = pg_insert(Symbol).values(
             symbol=symbol.symbol,
             base_asset=symbol.base_asset,
@@ -59,6 +75,34 @@ class SymbolRepository(BaseRepository[Symbol]):
         await self.session.flush()
         return result.scalar_one()
 
+    async def _upsert_sqlite(self, symbol: Symbol) -> Symbol:
+        """SQLite-compatible upsert via SELECT-then-INSERT/UPDATE."""
+        existing = await self.session.get(Symbol, {"symbol": symbol.symbol} if False else symbol.symbol)
+        # SQLAlchemy async get() with composite/unique keys doesn't work
+        # uniformly; do an explicit SELECT.
+        if existing is None:
+            stmt = select(Symbol).where(Symbol.symbol == symbol.symbol).limit(1)
+            result = await self.session.execute(stmt)
+            existing = result.scalar_one_or_none()
+
+        if existing is None:
+            self.session.add(symbol)
+            await self.session.flush()
+            return symbol
+        # Update fields
+        existing.base_asset = symbol.base_asset
+        existing.quote_asset = symbol.quote_asset
+        existing.contract_type = symbol.contract_type
+        existing.price_precision = symbol.price_precision
+        existing.quantity_precision = symbol.quantity_precision
+        existing.tick_size = symbol.tick_size
+        existing.step_size = symbol.step_size
+        existing.min_notional = symbol.min_notional
+        existing.is_active = symbol.is_active
+        existing.last_seen = symbol.last_seen
+        await self.session.flush()
+        return existing
+
     async def active_symbols(self, limit: int = 500) -> list[Symbol]:
         stmt = select(Symbol).where(Symbol.is_active.is_(True)).limit(limit)
         result = await self.session.execute(stmt)
@@ -69,9 +113,21 @@ class CandleRepository(BaseRepository[Candle]):
     model = Candle
 
     async def bulk_upsert(self, candles: list[Candle]) -> int:
-        """Insert candles, replacing duplicates by (symbol, tf, open_time)."""
+        """Insert candles, replacing duplicates by (symbol, tf, open_time).
+
+        Uses PostgreSQL ON CONFLICT when available, falls back to manual
+        SELECT-then-INSERT/UPDATE on SQLite (for tests / local dev).
+        """
         if not candles:
             return 0
+        if self._is_sqlite():
+            return await self._bulk_upsert_sqlite(candles)
+        return await self._bulk_upsert_postgres(candles)
+
+    def _is_sqlite(self) -> bool:
+        return self.session.bind.dialect.name == "sqlite" if self.session.bind else False
+
+    async def _bulk_upsert_postgres(self, candles: list[Candle]) -> int:
         rows = [
             {
                 "symbol": c.symbol,
@@ -108,6 +164,47 @@ class CandleRepository(BaseRepository[Candle]):
             index_elements=["symbol", "timeframe", "open_time"], set_=update_cols
         )
         await self.session.execute(stmt)
+        await self.session.flush()
+        return len(candles)
+
+    async def _bulk_upsert_sqlite(self, candles: list[Candle]) -> int:
+        """SQLite-compatible bulk upsert. Slower than Postgres but correct."""
+        from sqlalchemy import and_
+
+        # Group by (symbol, timeframe) to query efficiently
+        for c in candles:
+            stmt = select(Candle).where(
+                and_(
+                    Candle.symbol == c.symbol,
+                    Candle.timeframe == c.timeframe,
+                    Candle.open_time == c.open_time,
+                )
+            ).limit(1)
+            result = await self.session.execute(stmt)
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                self.session.add(Candle(
+                    symbol=c.symbol, timeframe=c.timeframe,
+                    open_time=c.open_time, close_time=c.close_time,
+                    open=c.open, high=c.high, low=c.low, close=c.close,
+                    volume=c.volume, quote_volume=c.quote_volume,
+                    trade_count=c.trade_count,
+                    taker_buy_volume=c.taker_buy_volume,
+                    taker_buy_quote_volume=c.taker_buy_quote_volume,
+                    is_closed=c.is_closed,
+                ))
+            else:
+                existing.close_time = c.close_time
+                existing.open = c.open
+                existing.high = c.high
+                existing.low = c.low
+                existing.close = c.close
+                existing.volume = c.volume
+                existing.quote_volume = c.quote_volume
+                existing.trade_count = c.trade_count
+                existing.taker_buy_volume = c.taker_buy_volume
+                existing.taker_buy_quote_volume = c.taker_buy_quote_volume
+                existing.is_closed = c.is_closed
         await self.session.flush()
         return len(candles)
 

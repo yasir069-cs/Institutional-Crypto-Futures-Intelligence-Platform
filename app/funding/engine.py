@@ -74,7 +74,6 @@ class FundingEngine:
                 rates.append(float(h))
 
         current = rates[-1]
-        avg = sum(rates) / len(rates) if rates else 0.0
         # 24h avg: funding is every 8h, so ~3 entries per 24h
         avg_24h = sum(rates[-3:]) / min(3, len(rates)) if rates else 0.0
 

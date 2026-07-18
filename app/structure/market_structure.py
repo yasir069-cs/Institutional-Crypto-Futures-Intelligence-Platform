@@ -20,12 +20,11 @@ Confluence) consume to weight their decisions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Sequence
 
 from app.exchange.binance_rest import Candle
-from app.market.indicator_engine import swing_pivots
 
 
 class TrendBias(str, Enum):
@@ -171,8 +170,6 @@ class MarketStructureEngine:
         if not highs or not lows or not candles:
             return StructureEvent.NONE, None
         last_candle = candles[-1]
-        last_high = highs[-1]
-        last_low = lows[-1]
 
         # The most recent prior swing high/low (excluding the last one itself)
         prev_high = highs[-2] if len(highs) >= 2 else None

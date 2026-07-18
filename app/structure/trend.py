@@ -12,11 +12,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from app.exchange.binance_rest import Candle
-from app.market.indicator_engine import (
-    IndicatorEngine,
-    adx,
-    ema_alignment_score,
-)
+from app.market.indicator_engine import adx, ema_alignment_score
 from app.structure.market_structure import MarketStructureEngine, TrendBias
 
 

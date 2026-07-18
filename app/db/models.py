@@ -19,7 +19,6 @@ range queries for backfilling and analysis are fast.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import (
     BigInteger,

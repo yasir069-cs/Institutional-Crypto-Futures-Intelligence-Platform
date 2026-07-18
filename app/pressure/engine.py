@@ -14,9 +14,8 @@ Output: a net pressure score in [-1, +1] and a confidence value.
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Sequence
+from typing import Sequence
 
 from app.exchange.binance_rest import AggTrade, Candle
 from app.market.data_engine import SymbolState

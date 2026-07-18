@@ -66,7 +66,11 @@ class AnalysisPipeline:
         self._signal_engine = SignalEngine()
         self._validator = SignalValidationEngine()
         self._notifier: TelegramNotifier | None = None
+        self._market_data = None
+        self._candle_engine = None
+        self._rest = None
         self._cycle = 0
+        self._seeded_symbols: set[str] = set()  # symbols already backfilled
 
     @classmethod
     def build(cls, container: ServiceContainer) -> "AnalysisPipeline":
@@ -90,6 +94,9 @@ class AnalysisPipeline:
         self._providers = await c.get("llm_providers")
         self._ai = await c.get("AIValidationEngine")
         self._notifier = await c.get("TelegramNotifier")
+        self._market_data = market_data
+        self._candle_engine = candle_engine
+        self._rest = rest
 
         from app.structure.market_structure import MarketStructureEngine
         from app.structure.trend import TrendEngine
@@ -137,6 +144,58 @@ class AnalysisPipeline:
             risk_engine=risk,
         )
 
+    async def _seed_market_data(self, market_data) -> list[str]:
+        """Cold-start helper: fetch 24h tickers from Binance and populate cache.
+
+        Returns the list of top symbols by 24h volume (limited to scan_max_pairs).
+        """
+        if self._rest is None:
+            return []
+        try:
+            tickers = await self._rest.ticker_24h_all()
+            usdt = [
+                t for t in tickers
+                if t.symbol.endswith("USDT")
+                and t.quote_volume >= settings.stage1_min_volume_usd
+                and t.trade_count > 100
+            ]
+            usdt.sort(key=lambda t: t.quote_volume, reverse=True)
+            top = usdt[: settings.scan_max_pairs]
+            for t in top:
+                await market_data.update_ticker(t)
+            log.info(
+                "pipeline_market_data_seeded",
+                symbols_loaded=len(top),
+                total_usdt_perp=len(usdt),
+            )
+            return [t.symbol for t in top]
+        except Exception as exc:  # noqa: BLE001
+            log.exception("pipeline_seed_failed", error=str(exc))
+            return []
+
+    async def _ensure_candles(self, symbols: list[str]) -> None:
+        """Backfill candle history for symbols we haven't seen before.
+
+        Idempotent — only fetches candles for new symbols. Existing candle
+        buffers are kept up-to-date by the WebSocket kline stream.
+        """
+        if self._candle_engine is None:
+            return
+        htf, mtf, ltf = settings.timeframes
+        new_symbols = [s for s in symbols if s not in self._seeded_symbols]
+        if not new_symbols:
+            return
+        # Limit to top 30 new symbols per cycle to avoid hammering Binance
+        # during cold start. Remaining symbols get backfilled next cycle.
+        batch = new_symbols[:30]
+        log.info("pipeline_backfilling_candles", count=len(batch), total_pending=len(new_symbols))
+        for symbol in batch:
+            try:
+                await self._candle_engine.backfill(symbol, [htf, mtf, ltf])
+                self._seeded_symbols.add(symbol)
+            except Exception:  # noqa: BLE001
+                log.exception("pipeline_backfill_failed", symbol=symbol)
+
     async def run_once(self) -> PipelineResult:
         """Run a single scan cycle. Returns the result for telemetry."""
         await self._ensure_components()
@@ -162,13 +221,21 @@ class AnalysisPipeline:
         )
 
         try:
-            # Get active symbols from market data engine
+            # Get active symbols from market data engine. If empty (cold start),
+            # seed market data by fetching 24h tickers from Binance.
             market_data = await self._container.get("market_data")  # type: ignore[union-attr]
             top_symbols = [s.symbol for s in market_data.top_volume_symbols(settings.scan_max_pairs)]
+            if not top_symbols:
+                log.info("pipeline_seeding_market_data")
+                top_symbols = await self._seed_market_data(market_data)
             if not top_symbols:
                 log.warning("pipeline_no_symbols")
                 result.duration_ms = int((time.time() - start) * 1000)
                 return result
+
+            # Ensure candle history exists for the top symbols we'll scan.
+            # This is a no-op after the first few cycles (cached in _seeded_symbols).
+            await self._ensure_candles(top_symbols[:50])  # backfill top 50 only
 
             # Stage 1
             s1 = await self._stage1.scan(top_symbols)  # type: ignore[union-attr]

@@ -219,7 +219,7 @@ async def test_full_pipeline_with_mock_provider():
     liq = liquidity.analyze(htf_candles)
     state = market_data.get("BTCUSDT")
     sm = smart_money.analyze(htf_candles, state, liq)
-    pressure = pressure_engine.analyze(candles=lTF_safe(ltf_candles), state=state)
+    pressure = pressure_engine.analyze(candles=ltf_candles, state=state)
     volume = volume_engine.analyze(htf_candles)
     ind = indicator_engine.compute_all("BTCUSDT", "1h", htf_candles)
 
@@ -280,6 +280,3 @@ async def test_full_pipeline_with_mock_provider():
 
     await providers.aclose()
 
-
-def lTF_safe(candles):
-    return candles
