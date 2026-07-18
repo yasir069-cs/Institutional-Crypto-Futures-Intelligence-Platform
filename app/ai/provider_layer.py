@@ -294,6 +294,27 @@ class OpenRouterProvider(OpenAICompatibleProvider):
         )
 
 
+class GroqProvider(OpenAICompatibleProvider):
+    """Groq — free, fast, OpenAI-compatible.
+
+    Free tier limits (as of 2024):
+    - llama-3.1-70b-versatile: 30 req/min, 14k req/day
+    - llama-3.1-8b-instant: 60 req/min, 30k req/day
+    - mixtral-8x7b-32768: 30 req/min
+
+    Get a free API key at https://console.groq.com
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="groq",
+            base_url=settings.groq_base_url,
+            api_key=settings.groq_api_key.get_secret_value(),
+            model=settings.groq_model,
+            timeout=settings.groq_timeout,
+        )
+
+
 class MockProvider(LLMProvider):
     """Deterministic local provider — used for tests and offline mode.
 
@@ -387,6 +408,8 @@ class LLMProviderLayer:
         self._semaphore: asyncio.Semaphore | None = None
 
         # Register providers
+        if "groq" in self._order:
+            self._providers["groq"] = GroqProvider()
         if "nim" in self._order:
             self._providers["nim"] = NIMProvider()
         if "openrouter" in self._order:
@@ -577,6 +600,7 @@ __all__ = [
     "OpenAICompatibleProvider",
     "NIMProvider",
     "OpenRouterProvider",
+    "GroqProvider",
     "MockProvider",
     "LLMProviderLayer",
     "ProviderResponse",

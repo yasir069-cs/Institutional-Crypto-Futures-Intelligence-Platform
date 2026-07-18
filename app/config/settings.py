@@ -89,9 +89,16 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     # AI providers
     # ------------------------------------------------------------------ #
-    # Comma-separated provider order, e.g. "nim,openrouter"
-    ai_provider_order: str = "nim,openrouter,mock"
-    ai_default_model: str = "meta/llama-3.1-70b-instruct"
+    # Comma-separated provider order, e.g. "groq,nim,openrouter,mock"
+    # Groq is recommended primary (free tier: 30 req/min on Llama 3.1 70B)
+    ai_provider_order: str = "groq,nim,openrouter,mock"
+    ai_default_model: str = "meta-llama/llama-3.1-70b-instruct"
+
+    # Groq (free, OpenAI-compatible, very fast)
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_api_key: SecretStr = SecretStr("")
+    groq_model: str = "llama-3.1-70b-versatile"
+    groq_timeout: float = 30.0
 
     # NVIDIA NIM
     nim_base_url: str = "https://integrate.api.nvidia.com/v1"
