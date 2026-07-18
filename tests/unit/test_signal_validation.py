@@ -118,3 +118,21 @@ def test_all_checks_pass_proceeds():
     )
     assert result.verdict == SignalVerdict.PROCEED
     assert result.can_send_to_ai
+
+
+def test_low_adx_rejects():
+    """HTF ADX < 15 (no real trend) → REJECT."""
+    engine = SignalValidationEngine()
+    htf = TimeframeTrend("1h", TrendBias.BULLISH, 0.5, 0.5, 10.0, "weak")  # ADX=10
+    mtf = TimeframeTrend("15m", TrendBias.BULLISH, 0.5, 0.4, 25.0, "moderate")
+    ltf = TimeframeTrend("5m", TrendBias.BULLISH, 0.5, 0.3, 20.0, "moderate")
+    trend = MultiTimeframeTrend(htf, mtf, ltf, overall_bias=TrendBias.BULLISH, aligned=True, score=80)
+    result = engine.validate(
+        confluence=ConfluenceResult(score=85, direction="BULLISH"),
+        trend=trend,
+        smart_money=SmartMoneyResult(net_flow=0.5),
+        risk=_make_risk(),
+        direction="BUY",
+    )
+    assert result.verdict == SignalVerdict.REJECT
+    assert "ADX" in result.reasons[0]

@@ -285,13 +285,35 @@ async def test_real_btcusdt_signal() -> bool:
         print(f"      Confidence: {signal.confidence*100:.0f}%")
         print(f"      Confluence: {signal.confluence_score}/100")
 
-        # Send to Telegram
-        print("\n   → Sending signal to Telegram...")
-        sent = await notifier.send_signal(signal)
-        if sent:
-            print("   ✅ SIGNAL ALERT SENT TO TELEGRAM — check your chat!")
+        # Send to Telegram ONLY if signal is actionable (matches pipeline rules)
+        from app.signal.engine import SignalDirection
+        from app.signal.validation import SignalVerdict as Verdict
+
+        is_actionable = (
+            signal.direction in (SignalDirection.BUY, SignalDirection.SELL)
+            and validation.verdict == Verdict.PROCEED
+            and signal.confluence_score >= 75  # stage3_min_confluence
+            and ai_result is not None
+            and ai_result.ai_decision in ("BUY", "SELL")
+        )
+
+        print(f"\n   → Actionable check: {is_actionable}")
+        print(f"     - Direction actionable: {signal.direction in (SignalDirection.BUY, SignalDirection.SELL)}")
+        print(f"     - Validation PROCEED: {validation.verdict == Verdict.PROCEED}")
+        print(f"     - Confluence ≥ 75: {signal.confluence_score >= 75}")
+        print(f"     - AI called & approved: {ai_result is not None and ai_result.ai_decision in ('BUY', 'SELL')}")
+
+        if is_actionable:
+            print("\n   → Sending signal to Telegram...")
+            sent = await notifier.send_signal(signal)
+            if sent:
+                print("   ✅ SIGNAL ALERT SENT TO TELEGRAM — check your chat!")
+            else:
+                print("   ⚠ Telegram send failed (dedup or throttle)")
         else:
-            print("   ⚠ Telegram send skipped (not actionable or dedup or throttle)")
+            print("\n   ⏸️  SIGNAL NOT SENT TO TELEGRAM (weak setup — filtered out)")
+            print(f"      Reason: validation={validation.verdict.value}, confluence={signal.confluence_score}/100")
+            print(f"      This is CORRECT behavior — platform prefers no alert over weak alert.")
 
         await notifier.aclose()
         await providers.aclose()

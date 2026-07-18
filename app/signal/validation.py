@@ -119,6 +119,12 @@ class SignalValidationEngine:
             reasons.append(f"LTF {trend.ltf.bias.value} opposes {direction} (timing off)")
             return ValidationResult(verdict=SignalVerdict.HOLD, reasons=reasons, can_send_to_ai=False)
 
+        # 7. HTF trend strength (ADX) — reject if no real trend
+        # ADX < 15 = no trend; 15-20 = weak; 20-25 = developing; 25+ = trending
+        if trend.htf.adx < 15:
+            reasons.append(f"HTF ADX {trend.htf.adx:.1f} < 15 (no real trend)")
+            return ValidationResult(verdict=SignalVerdict.REJECT, reasons=reasons, can_send_to_ai=False)
+
         # All checks passed — proceed to AI
         reasons.append("All pre-AI validations passed")
         return ValidationResult(verdict=SignalVerdict.PROCEED, reasons=reasons, can_send_to_ai=True)

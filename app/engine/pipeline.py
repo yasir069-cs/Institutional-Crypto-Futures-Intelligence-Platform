@@ -196,15 +196,42 @@ class AnalysisPipeline:
             # Stage 3: AI validation + signal generation
             for setup in s2.setups:
                 try:
-                    signal = await self._validate_and_signal(setup)
-                    if signal is not None:
-                        result.signals.append(signal)
-                        await self._store_signal(signal)
-                        if self._notifier is not None:
-                            try:
-                                await self._notifier.send_signal(signal)
-                            except Exception:  # noqa: BLE001
-                                log.exception("telegram_send_failed", signal_id=signal.id)
+                    signal, validation = await self._validate_and_signal(setup)
+                    if signal is None:
+                        continue
+
+                    # Store signal for audit (always — even rejected)
+                    await self._store_signal(signal, validation)
+
+                    # Only send Telegram alert for ACTUALLY ACTIONABLE signals
+                    # Rule: validation must be PROCEED (pre-AI gate passed)
+                    # AND signal direction must be BUY or SELL
+                    # AND confluence must meet stage3 threshold
+                    # AND AI must have been called and approved (if validation.can_send_to_ai)
+                    should_alert = self._should_send_telegram(signal, validation, ai_called=bool(signal.ai))
+                    if should_alert and self._notifier is not None:
+                        try:
+                            await self._notifier.send_signal(signal)
+                            log.info(
+                                "pipeline_signal_alerted",
+                                symbol=signal.symbol,
+                                direction=signal.direction.value,
+                                signal_id=signal.id,
+                            )
+                        except Exception:  # noqa: BLE001
+                            log.exception("telegram_send_failed", signal_id=signal.id)
+                    elif not should_alert:
+                        log.info(
+                            "pipeline_signal_skipped_alert",
+                            symbol=signal.symbol,
+                            direction=signal.direction.value,
+                            verdict=validation.verdict.value,
+                            confluence=signal.confluence_score,
+                            reason="not_actionable",
+                        )
+
+                    # Always add to result (for telemetry)
+                    result.signals.append(signal)
                 except Exception:  # noqa: BLE001
                     log.exception("pipeline_setup_failed", symbol=setup.symbol)
 
@@ -228,8 +255,13 @@ class AnalysisPipeline:
 
         return result
 
-    async def _validate_and_signal(self, setup: Stage2Setup) -> Signal | None:
-        """Run pre-AI validation, AI validation, and generate signal."""
+    async def _validate_and_signal(self, setup: Stage2Setup) -> tuple[Signal | None, "SignalVerdict"]:
+        """Run pre-AI validation, AI validation, and generate signal.
+
+        Returns (signal, validation) tuple. Signal is always created (even for
+        rejected setups) so we can persist it for audit, but the caller decides
+        whether to send the Telegram alert based on the validation verdict.
+        """
         # Pre-AI gate
         validation = self._validator.validate(
             confluence=setup.confluence,
@@ -239,7 +271,7 @@ class AnalysisPipeline:
             direction=setup.direction,
         )
 
-        # Always build a signal (even if rejected) for logging purposes
+        # Only call AI if pre-AI validation allows
         ai_result = None
         if validation.can_send_to_ai and self._ai is not None:
             try:
@@ -282,9 +314,50 @@ class AnalysisPipeline:
             except ValueError:
                 pass
 
-        return signal
+        return signal, validation
 
-    async def _store_signal(self, signal: Signal) -> None:
+    def _should_send_telegram(
+        self,
+        signal: Signal,
+        validation: "SignalVerdict",
+        ai_called: bool,
+    ) -> bool:
+        """Determine if a signal is actionable enough to alert Telegram.
+
+        Strict institutional rules — prefer no alert over a weak alert.
+        A signal is actionable only if ALL of:
+        - Pre-AI validation verdict is PROCEED (passed all safety gates)
+        - Signal direction is BUY or SELL (not HOLD/WATCHLIST/REJECT)
+        - Confluence score ≥ stage3_min_confluence (75 by default)
+        - AI was called (validation.can_send_to_ai was True)
+        - AI decision (if returned) is BUY or SELL
+        """
+        from app.signal.engine import SignalDirection
+        from app.signal.validation import SignalVerdict as Verdict
+
+        # Direction must be actionable
+        if signal.direction not in (SignalDirection.BUY, SignalDirection.SELL):
+            return False
+
+        # Pre-AI validation must have passed
+        if validation.verdict != Verdict.PROCEED:
+            return False
+
+        # Confluence must meet stage3 threshold
+        if signal.confluence_score < settings.stage3_min_confluence:
+            return False
+
+        # AI must have been called (otherwise validation wouldn't have PROCEED'd, but double-check)
+        if not ai_called:
+            return False
+
+        # AI decision (if available) must agree
+        if signal.ai is not None and signal.ai.ai_decision not in ("BUY", "SELL"):
+            return False
+
+        return True
+
+    async def _store_signal(self, signal: Signal, validation: "SignalVerdict | None" = None) -> None:
         """Persist signal to DB (best-effort)."""
         try:
             async with get_session() as session:
@@ -313,8 +386,8 @@ class AnalysisPipeline:
                     probability=signal.ai.probability if signal.ai else 0.0,
                     trade_quality=signal.ai.trade_quality if signal.ai else "",
                     risk_level=signal.ai.risk_level if signal.ai else "",
-                    status="OPEN",
-                    metadata_json=str(signal.metadata)[:5000],
+                    status="OPEN" if validation and validation.verdict.value == "PROCEED" else "REJECTED",
+                    metadata_json=str({**signal.metadata, "validation_verdict": validation.verdict.value if validation else "UNKNOWN", "validation_reasons": validation.reasons if validation else []})[:5000],
                     ai_decision_id=signal.ai.stored_decision_id if signal.ai else None,
                 )
                 await repo.add(model)
