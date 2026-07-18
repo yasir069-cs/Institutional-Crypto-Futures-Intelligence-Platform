@@ -111,10 +111,14 @@ class TelegramNotifier:
         return True
 
     # ------------------------------------------------------------------ #
-    # Message formatting
+    # Message formatting — Institutional AI Market Intelligence template
     # ------------------------------------------------------------------ #
     def _format_message(self, signal: Signal) -> str:
-        """Format a signal into a rich Telegram message."""
+        """Format a signal into a Telegram alert using the institutional template."""
+        s = signal
+        SEP = "━━━━━━━━━━━━━━━━━━━━"
+
+        # Direction → emoji + label
         direction_emoji = {
             SignalDirection.BUY: "🟢 BUY",
             SignalDirection.SELL: "🔴 SELL",
@@ -122,46 +126,258 @@ class TelegramNotifier:
             SignalDirection.HOLD: "⚪ HOLD",
             SignalDirection.REJECT: "⚫ REJECT",
         }
-        type_label = {
-            SignalType.TYPE_A: "TYPE A — Early Smart Money Alert",
-            SignalType.TYPE_B: "TYPE B — Bottom Detection",
-            SignalType.TYPE_C: "TYPE C — Top Detection",
-            SignalType.TYPE_D: "TYPE D — BUY/SELL Confirmation",
-        }
-        s = signal
-        ai_reasoning = s.ai.reasoning if s.ai and s.ai.ai_decision else "N/A (no AI validation)"
-        ai_decision = s.ai.ai_decision if s.ai else "N/A"
-        ai_confidence = f"{s.ai.confidence*100:.0f}%" if s.ai else "N/A"
-        provider = s.ai.provider if s.ai else "N/A"
 
+        # Signal Type → institutional label
+        type_label = {
+            SignalType.TYPE_A: "Early Smart Money Alert",
+            SignalType.TYPE_B: "Bottom Detection",
+            SignalType.TYPE_C: "Top Detection",
+            SignalType.TYPE_D: "Trend Continuation",
+        }
+
+        # Priority based on validation verdict + AI decision
+        if s.direction == SignalDirection.BUY or s.direction == SignalDirection.SELL:
+            priority = "🟢 HIGH"
+        elif s.direction == SignalDirection.WATCHLIST:
+            priority = "🟡 WATCHLIST"
+        elif s.direction == SignalDirection.HOLD:
+            priority = "⚪ MEDIUM"
+        else:
+            priority = "⚫ LOW"
+
+        # Setup Quality: 0-10 scale based on confluence + confidence
+        quality_10 = (s.confluence_score / 10.0 + s.confidence * 5) / 2
+        quality_10 = min(10.0, max(0.0, quality_10))
+        # Stars (10 stars, filled = ●, empty = ○)
+        filled = int(round(quality_10))
+        stars = "●" * filled + "○" * (10 - filled)
+
+        # AI fields
+        ai_confidence_pct = f"{s.ai.confidence*100:.0f}%" if s.ai else "N/A"
+        ai_decision = s.ai.ai_decision if s.ai else "Manual"
+        ai_reasoning = (
+            s.ai.reasoning if s.ai and s.ai.reasoning
+            else "Python technicals aligned. No AI verification."
+        )
+        # Trim AI reasoning to 2 sentences max for compactness
+        if s.ai and s.ai.reasoning:
+            sentences = ai_reasoning.split(". ")
+            if len(sentences) > 2:
+                ai_reasoning = ". ".join(sentences[:2]) + "."
+
+        # Trend short labels
+        def _trend_short(bias_val: str) -> str:
+            if bias_val == "BULLISH": return "BULL"
+            if bias_val == "BEARISH": return "BEAR"
+            return "NEUTRAL"
+
+        htf_label = _trend_short(s.trend.htf.bias.value)
+        mtf_label = _trend_short(s.trend.mtf.bias.value)
+        ltf_label = _trend_short(s.trend.ltf.bias.value)
+
+        # EMA alignment
+        ema_score = 0.0
+        try:
+            ema_score = float(s.metadata.get("indicators", {}).get("ema", {}).get("score", 0))
+        except Exception:
+            pass
+        ema_aligned = "Aligned" if abs(ema_score) > 0.3 else "Mixed"
+
+        # VWAP alignment
+        vwap_pos = 0.0
+        try:
+            vwap_pos = float(s.metadata.get("indicators", {}).get("vwap_position", 0))
+        except Exception:
+            pass
+        vwap_aligned = "Aligned" if abs(vwap_pos) > 0.2 else "Neutral"
+
+        # Market structure event
+        ms_event = s.market_structure.event.value
+        if ms_event == "NONE":
+            ms_event = "Stable"
+        elif ms_event.startswith("BOS_"):
+            ms_event = "BOS"
+        elif ms_event.startswith("CHOCH_"):
+            ms_event = "CHOCH"
+
+        # Take Profit levels — 3 TP targets based on ATR multiplier
+        entry = s.entry
+        sl = s.stop_loss
+        risk_dist = abs(entry - sl)
+        if s.direction == SignalDirection.BUY:
+            tp1 = entry + risk_dist * 1.0
+            tp2 = entry + risk_dist * 2.0
+            tp3 = entry + risk_dist * 3.0
+        elif s.direction == SignalDirection.SELL:
+            tp1 = entry - risk_dist * 1.0
+            tp2 = entry - risk_dist * 2.0
+            tp3 = entry - risk_dist * 3.0
+        else:
+            tp1 = tp2 = tp3 = s.take_profit
+
+        # Risk level
+        risk_level = "Medium"
+        if s.risk.risk_pct < 1.0:
+            risk_level = "Low"
+        elif s.risk.risk_pct > 2.0:
+            risk_level = "High"
+
+        # RR simplified
+        rr_ratio = int(round(s.risk_reward)) if s.risk_reward >= 1 else 1
+
+        # Confluence checklist (which components contributed)
+        components = {c.name: c for c in s.confluence.components}
+        def _check(name: str) -> str:
+            c = components.get(name)
+            if c is None:
+                return "➖"
+            if abs(c.contribution) < 0.1:
+                return "➖"
+            return "✅" if c.contribution > 0 else "❌"
+
+        # Extract market data from indicators metadata
+        ind = s.metadata.get("indicators", {})
+        rsi_val = ind.get("rsi", {}).get("value", 0) if isinstance(ind.get("rsi"), dict) else 0
+        adx_val = ind.get("adx", {}).get("adx", 0) if isinstance(ind.get("adx"), dict) else 0
+        buy_pct = 0.0
+        sell_pct = 0.0
+        try:
+            buy_pct = s.smart_money.institutional_buying * 100
+            sell_pct = s.smart_money.institutional_selling * 100
+        except Exception:
+            pass
+        # If smart money values are 0, fall back to pressure
+        if buy_pct == 0 and sell_pct == 0:
+            try:
+                buy_pct = (s.metadata.get("pressure", {}).get("buy_pct", 0.5)) * 100
+                sell_pct = 100 - buy_pct
+            except Exception:
+                pass
+
+        change_24h = s.metadata.get("price_change_pct_24h", 0.0)
+        # Funding rate / OI come from signal.metadata (set by pipeline), not indicators
+        funding_rate = s.metadata.get("funding_rate", 0.0) if isinstance(s.metadata.get("funding_rate"), (int, float)) else 0.0
+        oi_val = s.metadata.get("open_interest", 0.0) if isinstance(s.metadata.get("open_interest"), (int, float)) else 0.0
+
+        # Count rule matches (components with positive contribution)
+        rule_matches = sum(1 for c in s.confluence.components if c.contribution > 0.1)
+        total_rules = len(s.confluence.components)
+
+        # Symbol emoji
+        symbol_emoji = "₿" if s.symbol.startswith("BTC") else \
+                        "Ξ" if s.symbol.startswith("ETH") else \
+                        "◈" if s.symbol.startswith("BNB") else \
+                        "🪙"
+
+        # Build the message
         lines = [
-            f"<b>{direction_emoji.get(s.direction, s.direction.value)}  {s.symbol}</b>",
-            f"<i>{type_label.get(s.signal_type, s.signal_type.value)}</i>",
+            SEP,
+            "🏛 <b>Institutional AI Market Intelligence</b>",
+            SEP,
+            f"Coin: {symbol_emoji} <b>{s.symbol}</b>",
+            f"Direction Bias: {direction_emoji.get(s.direction, s.direction.value)}",
+            f"Signal Type: {type_label.get(s.signal_type, s.signal_type.value)}",
             "",
-            f"<b>Entry:</b> <code>{s.entry}</code>",
-            f"<b>Stop Loss:</b> <code>{s.stop_loss}</code>  ({s.risk.risk_pct:.2f}%)",
-            f"<b>Take Profit:</b> <code>{s.take_profit}</code>  ({s.risk.reward_pct:.2f}%)",
-            f"<b>Risk/Reward:</b> 1:{s.risk_reward:.2f}",
-            f"<b>Position Size:</b> <code>{s.risk.position_size:.4f}</code> ({s.risk.position_value:.0f} USDT)",
+            SEP,
+            f"PRIORITY: {priority}",
+            f"Setup Quality: {stars} ({quality_10:.1f}/10)",
+            f"AI Confidence: {ai_confidence_pct}",
             "",
-            f"<b>Confluence:</b> {s.confluence_score}/100  ({s.confluence.direction})",
-            f"<b>Confidence:</b> {s.confidence*100:.0f}%",
+            SEP,
+            "💰 <b>TRADE PLAN</b>",
+            f"Entry: <code>{entry}</code>",
+            f"Stop Loss: <code>{sl}</code>",
+            f"TP1: <code>{tp1:.4f}</code> | TP2: <code>{tp2:.4f}</code> | TP3: <code>{tp3:.4f}</code>",
+            f"Risk Reward: 1:{rr_ratio} | Risk: {risk_level}",
             "",
-            f"<b>Trend HTF ({s.trend.htf.timeframe}):</b> {s.trend.htf.bias.value} (ADX {s.trend.htf.adx:.0f})",
-            f"<b>Trend MTF ({s.trend.mtf.timeframe}):</b> {s.trend.mtf.bias.value} (ADX {s.trend.mtf.adx:.0f})",
-            f"<b>Trend LTF ({s.trend.ltf.timeframe}):</b> {s.trend.ltf.bias.value} (ADX {s.trend.ltf.adx:.0f})",
-            f"<b>Aligned:</b> {'YES' if s.trend.aligned else 'NO'} (score {s.trend.score})",
+            SEP,
+            "📊 <b>MARKET STRUCTURE</b>",
+            f"1H Trend: {htf_label} | 15M: {mtf_label} | 5M: {ltf_label}",
+            f"EMA21: {ema_aligned}",
+            f"VWAP: {vwap_aligned}",
+            f"Structure: {ms_event}",
             "",
-            f"<b>Market Structure:</b> {s.market_structure.bias.value} (event: {s.market_structure.event.value})",
-            f"<b>Smart Money:</b> {s.smart_money.summary}",
-            f"<b>Liquidity:</b> {s.metadata.get('liquidity_summary', 'N/A')}",
+            SEP,
+            "✅ <b>CONFLUENCE SUMMARY</b>",
+            f"{_check('trend')} Trend",
+            f"{_check('ema')} EMA21",
+            f"{_check('vwap')} VWAP",
+            f"{_check('rsi')} RSI Behaviour",
+            f"{_check('volume')} Volume Spike",
+            f"{_check('liquidity')} Liquidity Sweep",
+            f"{_check('pressure')} Buy/Sell Pressure",
+            f"{_check('bollinger')} Bollinger",
+            f"{_check('atr')} ATR",
+            f"{_check('market_structure')} Market Structure",
+            f"Rule Match: {rule_matches} / {total_rules} Rules",
             "",
-            f"<b>AI Decision:</b> {ai_decision}  ({ai_confidence} via {provider})",
-            f"<b>AI Reasoning:</b> {ai_reasoning}",
+            SEP,
+            "📈 <b>MARKET DATA</b>",
+            f"RSI: {rsi_val:.2f} | ADX: {adx_val:.2f}",
+            f"Buy Press: {buy_pct:.1f}% | Sell Press: {sell_pct:.1f}%",
+            f"24H Change: {change_24h:+.2f}%",
+            f"Funding: {funding_rate*100:.3f}% | OI: {oi_val:.1f}",
             "",
-            f"<b>Time:</b> {s.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}",
-            f"<b>Signal ID:</b> <code>{s.id}</code>",
+            SEP,
+            "🧠 <b>AI ANALYSIS</b>",
+            ai_reasoning,
+            "",
+            SEP,
+            "⚠️ <b>TRADE INVALIDATION</b>",
+            "Ignore this setup if:",
         ]
+
+        # Dynamic invalidation rules based on direction
+        if s.direction == SignalDirection.SELL:
+            lines += [
+                "• 15M closes above EMA21",
+                "• Price reclaims VWAP",
+                "• Sell pressure weakens",
+                "• Liquidity sweep fails",
+            ]
+        elif s.direction == SignalDirection.BUY:
+            lines += [
+                "• 15M closes below EMA21",
+                "• Price loses VWAP",
+                "• Buy pressure weakens",
+                "• Liquidity sweep fails",
+            ]
+        else:
+            lines += [
+                "• Setup conditions deteriorate",
+                "• Confluence drops below 70",
+                "• Smart money flow reverses",
+                "• Higher timeframe trend breaks",
+            ]
+
+        lines += [
+            "",
+            SEP,
+            "📝 <b>MANUAL CHECKLIST</b>",
+            "☐ Support &amp; Resistance",
+            "☐ Higher Timeframe Candle Close",
+            "☐ Live Volume",
+            "☐ BTC Market Direction",
+            "☐ High Impact News",
+            "☐ Position Size",
+            "",
+            SEP,
+            "⚖️ <b>FINAL VERDICT</b>",
+            f"Decision: <b>{s.direction.value}</b>",
+            f"Confidence: {s.confidence*100:.0f}% | Quality: {quality_10:.1f}/10",
+            "",
+            SEP,
+            "⚠ <i>AI Market Intelligence Only</i>",
+            "<i>This is NOT financial advice.</i>",
+            "<i>This alert highlights a potential market opportunity.</i>",
+            "",
+            "<b>Final Trading Decision:</b>",
+            "👤 <b>MANUAL</b>",
+            "",
+            f"<i>Time: {s.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}</i>",
+            f"<i>Signal ID: {s.id}</i>",
+        ]
+
         return "\n".join(lines)
 
     # ------------------------------------------------------------------ #

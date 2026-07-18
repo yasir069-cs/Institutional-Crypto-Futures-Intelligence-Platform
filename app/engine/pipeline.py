@@ -373,6 +373,22 @@ class AnalysisPipeline:
             ai=ai_result,
         )
 
+        # Populate metadata needed by the new alert template
+        # (indicators snapshot, pressure, funding, OI, 24h change)
+        md_state = self._market_data.get(setup.symbol) if self._market_data else None
+        signal.metadata["indicators"] = setup.indicators
+        signal.metadata["pressure"] = setup.pressure.to_dict() if hasattr(setup.pressure, "to_dict") else {}
+        signal.metadata["liquidity_summary"] = (
+            f"{len(setup.liquidity.pools)} pools, {len(setup.liquidity.recent_sweeps)} sweeps, "
+            f"{sum(1 for f in setup.liquidity.fvgs if not f.filled)} unfilled FVGs, "
+            f"{len(setup.liquidity.order_blocks)} OBs"
+        )
+        signal.metadata["funding_rate"] = setup.funding.current_rate
+        signal.metadata["open_interest"] = setup.oi.current_oi_value or setup.oi.current_oi
+        signal.metadata["price_change_pct_24h"] = (
+            md_state.price_change_pct_24h if md_state else 0.0
+        )
+
         # If AI returned a different decision, override signal direction
         if ai_result is not None and ai_result.ai_decision in ("BUY", "SELL", "WATCHLIST", "HOLD", "REJECT"):
             from app.signal.engine import SignalDirection
