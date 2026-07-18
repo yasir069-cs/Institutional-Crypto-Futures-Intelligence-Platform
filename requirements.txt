@@ -1,0 +1,15 @@
+# Core runtime
+aiohttp>=3.9,<4
+asyncpg>=0.29
+redis[hiredis]>=5.0,<6
+SQLAlchemy[asyncio]>=2.0.30,<2.1
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+structlog>=24.1,<25
+
+# API server
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+
+# Indicators (optional — pure-Python fallback used if not installed)
+numpy>=1.26
