@@ -3,6 +3,11 @@
 # Platform Diagnostic Script — Check platform health + activity
 # ============================================================
 
+# Find project directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR"
+
 echo "============================================================"
 echo "📊 PLATFORM DIAGNOSTIC"
 echo "============================================================"

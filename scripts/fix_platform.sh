@@ -5,8 +5,10 @@
 # ============================================================
 set -e
 
-cd ~/Institutional-Crypto-Futures-Intelligence-Platform 2>/dev/null || \
-cd /home/ubuntu/Institutional-Crypto-Futures-Intelligence-Platform
+# Find project directory (try common locations)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR"
 
 echo "============================================================"
 echo "🔧 FAST FIX — Platform Startup"

@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.6
 # ============================================================
 # Institutional Crypto Futures Intelligence Platform
-# Multi-stage Dockerfile — build dependencies in first stage,
-# ship only runtime in final image.
+# Multi-stage production Dockerfile
 # ============================================================
 
 ARG PYTHON_VERSION=3.12
@@ -21,6 +20,7 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create venv and install requirements
@@ -39,7 +39,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH="/app"
 
-# Runtime deps (libpq for asyncpg, no build tools)
+# Runtime deps (libpq for asyncpg, curl for healthcheck, tini for PID 1)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
@@ -53,23 +53,31 @@ COPY --from=builder /opt/venv /opt/venv
 # Copy application code
 WORKDIR /app
 COPY --chown=platform:platform app/ ./app/
-COPY --chown=platform:platform scripts/ ./scripts/
-COPY --chown=platform:platform tests/ ./tests/
+COPY --chown=platform:platform main.py .
 COPY --chown=platform:platform requirements.txt pytest.ini ./
 COPY --chown=platform:platform .env.example ./
+COPY --chown=platform:platform scripts/ ./scripts/
+COPY --chown=platform:platform deploy/ ./deploy/
+COPY --chown=platform:platform tests/ ./tests/
+COPY --chown=platform:platform docs/ ./docs/
+COPY --chown=platform:platform README.md .
 
-# Create data directory for SQLite fallback / logs
+# Ensure entrypoint is executable
+RUN chmod +x /app/deploy/entrypoint.sh /app/main.py
+
+# Create data directory for SQLite / logs
 RUN mkdir -p /app/data /app/logs && chown -R platform:platform /app
 
 USER platform
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -fsS http://localhost:8080/health || exit 1
 
-# Use tini as PID 1 for proper signal handling (SIGTERM / SIGINT)
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# Use tini as PID 1 for proper signal handling (SIGTERM / SIGINT),
+# then run our entrypoint (DB migrations + startup notify), then the app.
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/deploy/entrypoint.sh"]
 
-# Default command: run the pipeline (24/7 loop)
-CMD ["python", "-m", "app"]
+# Default: run 24/7 pipeline via main.py
+CMD ["python", "main.py"]

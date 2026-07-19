@@ -154,7 +154,6 @@ class TelegramNotifier:
 
         # AI fields
         ai_confidence_pct = f"{s.ai.confidence*100:.0f}%" if s.ai else "N/A"
-        ai_decision = s.ai.ai_decision if s.ai else "Manual"
         ai_reasoning = (
             s.ai.reasoning if s.ai and s.ai.reasoning
             else "Python technicals aligned. No AI verification."

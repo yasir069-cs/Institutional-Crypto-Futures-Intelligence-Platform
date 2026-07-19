@@ -1,15 +1,24 @@
 #!/bin/bash
 # ============================================================
 # Force Test Alert — Send a fake signal to verify alert format
-# Run this ON the EC2 instance (after platform is running)
+# Run this on EC2 (or locally) after platform is installed
 # ============================================================
 
 set -e
 
-cd ~/Institutional-Crypto-Futures-Intelligence-Platform 2>/dev/null || cd /home/ubuntu/Institutional-Crypto-Futures-Intelligence-Platform
+# Find project directory (try common locations)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR"
 
-# Activate venv
-source .venv/bin/activate 2>/dev/null || { echo "❌ venv not found. Run this on the EC2 instance where platform is installed."; exit 1; }
+# Activate venv if exists
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+elif [ -n "$VIRTUAL_ENV" ]; then
+    : # already in a venv
+else
+    echo "⚠️  No venv found — using system Python"
+fi
 
 echo "🚀 Sending force test alert with new institutional format..."
 echo ""

@@ -1,6 +1,11 @@
 # ============================================================
 # Institutional Crypto Futures Intelligence Platform
-# Docker Compose orchestration: PostgreSQL + Redis + app
+# Docker Compose — production-grade single-instance deployment
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in your API keys
+#   2. docker compose up -d
+#   3. Visit http://localhost:8080/ (or your server's IP)
 # ============================================================
 
 version: "3.9"
@@ -14,16 +19,16 @@ services:
     container_name: platform-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: platform
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-platform}
-      POSTGRES_DB: platform
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-platform_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-platform}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-platform} -d ${POSTGRES_DB:-platform}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -57,7 +62,7 @@ services:
       - platform-net
 
   # ----------------------------------------------------------
-  # Application — the platform itself (24/7 loop)
+  # Application — the platform itself (24/7 pipeline + API)
   # ----------------------------------------------------------
   app:
     build:
@@ -73,14 +78,15 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://platform:${POSTGRES_PASSWORD:-platform}@postgres:5432/platform
+      # Override to use Docker network services
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform_pass}@postgres:5432/${POSTGRES_DB:-platform}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-production}
     ports:
       - "8080:8080"
     volumes:
-      - ./app:/app/app:ro  # Mount source for hot reload in dev
       - app_logs:/app/logs
+      - app_data:/app/data
     networks:
       - platform-net
     healthcheck:
@@ -88,41 +94,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-
-  # ----------------------------------------------------------
-  # (Optional) uvicorn API server — runs the FastAPI app
-  # ----------------------------------------------------------
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: platform-api
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://platform:${POSTGRES_PASSWORD:-platform}@postgres:5432/platform
-      REDIS_URL: redis://redis:6379/0
-    command: ["uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8081", "--workers", "1"]
-    ports:
-      - "8081:8081"
-    volumes:
-      - ./app:/app/app:ro
-    networks:
-      - platform-net
-    profiles:
-      - api  # only started with --profile api
+      start_period: 90s
 
 volumes:
   postgres_data:
   redis_data:
   app_logs:
+  app_data:
 
 networks:
   platform-net:
