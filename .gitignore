@@ -82,3 +82,9 @@ docker-compose.override.yml
 
 # ---- Migrations (auto-generated) ----
 alembic/versions/*.pyc
+
+# n8n workflow + PDF guide (local only, not for GitHub)
+download/
+scripts/build_n8n_workflow.py
+scripts/build_pdf_guide.py
+n8n_local/
